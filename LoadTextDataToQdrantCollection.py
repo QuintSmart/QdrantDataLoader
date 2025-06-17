@@ -269,26 +269,39 @@ def main():
             )
         )
 
-    # 🔹 Upsert Data to Qdrant
-    if not points_to_upload:
-        logging.info("No points to upload to Qdrant.")
-        return
+        # 🔹 Upsert Data to Qdrant
+        if not points_to_upload:
+            logging.info("No points to upload to Qdrant.")
+            return
 
-    logging.info(f"Starting upload of {len(points_to_upload)} points to Qdrant collection '{collection_name}'...")
-    try:
-        # Qdrant client's upsert handles batching for lists of points.
-        # For extremely large datasets, manual batching (looping with QDRANT_UPLOAD_BATCH_SIZE)
-        # might offer better progress tracking or memory control.
-        qdrant_client.upsert(
-            collection_name=collection_name,
-            points=points_to_upload,
-            wait=True
-        )
         logging.info(
-            f"✅ All {len(points_to_upload)} points successfully stored in Qdrant collection '{collection_name}'!")
+            f"Starting upload of {len(points_to_upload)} points in batches to Qdrant collection '{collection_name}'...")
 
-    except Exception as e:
-        logging.error(f"Failed to upload data to Qdrant: {e}")
+        # Define the batch size from your constants
+        batch_size = QDRANT_UPLOAD_BATCH_SIZE
+
+        try:
+            # Loop through the points in chunks of batch_size
+            for i in range(0, len(points_to_upload), batch_size):
+                # Get the current batch of points
+                batch = points_to_upload[i:i + batch_size]
+
+                # Upsert the batch to Qdrant
+                qdrant_client.upsert(
+                    collection_name=collection_name,
+                    points=batch,
+                    wait=True
+                )
+                logging.info(
+                    f"Uploaded batch {i // batch_size + 1}/{(len(points_to_upload) + batch_size - 1) // batch_size}")
+
+            logging.info(
+                f"✅ All {len(points_to_upload)} points successfully stored in Qdrant collection '{collection_name}'!")
+
+        except Exception as e:
+            logging.error(f"Failed to upload data to Qdrant: {e}")
+
+
 
 
 if __name__ == "__main__":
