@@ -194,6 +194,8 @@ def run_loader(
                 tags = [str(t).strip() for t in raw_tags if str(t).strip()]
             else:
                 tags = []
+            # Optional: source aus Frontmatter
+            source = md_data.get("source", None)
 
             text_content = md_data.content.strip()
             if not text_content:
@@ -216,7 +218,8 @@ def run_loader(
                 "date_created": date_created_formatted,
                 "note_type": note_type,
                 "tag": tags,
-                "file_hash": file_hash
+                "file_hash": file_hash,
+                "source": source
             })
         except Exception as e:
             logging.error(f"Error processing file {file_path}: {e}")
@@ -248,7 +251,8 @@ def run_loader(
                 "tag": doc["tag"],
                 "file_hash": doc["file_hash"],
                 "chunk_index": idx,
-                "chunk_hash": chunk_hash
+                "chunk_hash": chunk_hash,
+                "source": doc.get("source")
             })
 
     logging.info(f"Created {len(split_docs)} text chunks from {len(documents)} processed Markdown files.")
@@ -386,7 +390,7 @@ def run_loader(
     # 🔹 Optionally create payload indices (date_created, tag, note_type)
     if create_indexes:
         try:
-            logging.info("Creating payload indexes (if not exist): date_created(datetime), tag(text), note_type(text), file_hash(keyword)")
+            logging.info("Creating payload indexes (if not exist): date_created(datetime), tag(text), note_type(text), file_hash(keyword), source(keyword)")
             # See Qdrant indexing docs: https://qdrant.tech/documentation/concepts/indexing/
             qdrant_client.create_payload_index(
                 collection_name=collection_name,
@@ -406,6 +410,11 @@ def run_loader(
             qdrant_client.create_payload_index(
                 collection_name=collection_name,
                 field_name="file_hash",
+                field_schema="keyword",
+            )
+            qdrant_client.create_payload_index(
+                collection_name=collection_name,
+                field_name="source",
                 field_schema="keyword",
             )
         except Exception as e:
