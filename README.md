@@ -302,3 +302,12 @@ python LoadTextDataToQdrantCollection.py /path/to/markdown \
 Hinweis: Für schnelle Filterung wird empfohlen, bei `--create-indexes` auch der Index `file_hash (keyword)` zu erstellen (automatisch enthalten).
 
 
+## GUI-Suche
+
+In der GUI gibt es einen Button „Suche…“:
+- Eingabe: Query-Text (wird eingebettet), Top-K, optionale Filter (`tag`, `note_type`, `source`, `date_created` von/bis).
+- Ergebnisse: Trefferliste links (Score, Datei), Vorschau rechts. Markdown wird zu Text gerendert; optional kann `tkhtmlview` installiert sein, um HTML-Rendering zu ermöglichen.
+
+Abhängigkeiten (bereits in requirements): `markdown`, `tkhtmlview` (optional, für Markdown→HTML in Tkinter).
+
+

@@ -107,6 +107,45 @@ def convert_date_format(date_str):
     return dt.strftime(output_format)
 
 
+def ensure_payload_indexes(qdrant_client: QdrantClient, collection_name: str):
+    """
+    Legt die benötigten Payload-Indizes an (idempotent).
+    """
+    try:
+        logging.info(
+            "Creating payload indexes (if not exist): "
+            "date_created(datetime), tag(keyword), note_type(keyword), file_hash(keyword), source(keyword)"
+        )
+        # Siehe Qdrant Indexing Doku: https://qdrant.tech/documentation/concepts/indexing/
+        qdrant_client.create_payload_index(
+            collection_name=collection_name,
+            field_name="date_created",
+            field_schema="datetime",
+        )
+        qdrant_client.create_payload_index(
+            collection_name=collection_name,
+            field_name="tag",
+            field_schema="keyword",
+        )
+        qdrant_client.create_payload_index(
+            collection_name=collection_name,
+            field_name="note_type",
+            field_schema="keyword",
+        )
+        qdrant_client.create_payload_index(
+            collection_name=collection_name,
+            field_name="file_hash",
+            field_schema="keyword",
+        )
+        qdrant_client.create_payload_index(
+            collection_name=collection_name,
+            field_name="source",
+            field_schema="keyword",
+        )
+    except Exception as e:
+        logging.warning(f"Failed to create one or more payload indexes: {e}")
+
+
 # --- Core Processing ---
 def run_loader(
     md_folder,
@@ -120,12 +159,15 @@ def run_loader(
     create_indexes=False,
     create_collection_if_missing=False,
     vector_size: Optional[int] = 1536,
-    dedupe_mode: str = "skip"  # skip | overwrite | off
+    dedupe_mode: str = "skip",  # skip | overwrite | off
+    only_indexes: bool = False,  # wenn True: nur Indizes anlegen/aktualisieren, keine Embeddings/Uploads
 ):
 
-    if not os.path.isdir(md_folder):
-        logging.error(f"Markdown folder not found: {md_folder}")
-        return
+    # Pfad-Validierung nur, wenn wir wirklich Dateien verarbeiten
+    if not only_indexes:
+        if not os.path.isdir(md_folder) and not os.path.isfile(md_folder):
+            logging.error(f"Markdown folder or file not found: {md_folder}")
+            return
 
     # 🔹 Initialize Qdrant client
     try:
@@ -150,6 +192,14 @@ def run_loader(
         logging.error(f"Failed to initialize Qdrant client: {e}")
         return
 
+    # Nur Indizes neu bauen – keine Embeddings, kein Upload
+    if only_indexes:
+        if create_indexes:
+            ensure_payload_indexes(qdrant_client, collection_name)
+        else:
+            logging.info("only_indexes=True, aber create_indexes=False – nichts zu tun.")
+        return
+
     # 🔹 Initialize OpenAI embeddings
     try:
         embeddings_model = OpenAIEmbeddings(model=DEFAULT_EMBEDDING_MODEL, openai_api_key=OPENAI_API_KEY)
@@ -158,9 +208,17 @@ def run_loader(
         logging.error(f"Failed to initialize OpenAI embeddings: {e}")
         return
 
-    # 🔹 Load all Markdown files from the folder
+    # 🔹 Load all Markdown files from the folder or a single file
     try:
-        md_files = glob.glob(os.path.join(md_folder, "*.md"))
+        md_files = []
+        if os.path.isdir(md_folder):
+            md_files = glob.glob(os.path.join(md_folder, "*.md"))
+        elif os.path.isfile(md_folder):
+            if md_folder.lower().endswith(".md"):
+                md_files = [md_folder]
+            else:
+                logging.warning(f"Specified file is not a Markdown file: {md_folder}")
+                return
         if not md_files:
             logging.warning(f"No Markdown files found in {md_folder}.")
             return
@@ -387,38 +445,9 @@ def run_loader(
             )
         )
 
-    # 🔹 Optionally create payload indices (date_created, tag, note_type)
+    # 🔹 Optionally create payload indices (date_created, tag, note_type, file_hash, source)
     if create_indexes:
-        try:
-            logging.info("Creating payload indexes (if not exist): date_created(datetime), tag(text), note_type(text), file_hash(keyword), source(keyword)")
-            # See Qdrant indexing docs: https://qdrant.tech/documentation/concepts/indexing/
-            qdrant_client.create_payload_index(
-                collection_name=collection_name,
-                field_name="date_created",
-                field_schema="datetime",
-            )
-            qdrant_client.create_payload_index(
-                collection_name=collection_name,
-                field_name="tag",
-                field_schema="text",
-            )
-            qdrant_client.create_payload_index(
-                collection_name=collection_name,
-                field_name="note_type",
-                field_schema="text",
-            )
-            qdrant_client.create_payload_index(
-                collection_name=collection_name,
-                field_name="file_hash",
-                field_schema="keyword",
-            )
-            qdrant_client.create_payload_index(
-                collection_name=collection_name,
-                field_name="source",
-                field_schema="keyword",
-            )
-        except Exception as e:
-            logging.warning(f"Failed to create one or more payload indexes: {e}")
+        ensure_payload_indexes(qdrant_client, collection_name)
 
     # 🔹 Upsert Data to Qdrant
     if not points_to_upload:
@@ -473,6 +502,8 @@ def main():
     parser.add_argument("--vector-size", type=int, default=1536, help="Vector size when creating a collection (default 1536 for ada-002).")
     parser.add_argument("--dedupe", choices=["skip", "overwrite", "off"], default="skip",
                         help="Dedupe strategy per file: skip=überspringt vorhandene, overwrite=löscht und ersetzt, off=immer hinzufügen.")
+    parser.add_argument("--only-indexes", action="store_true",
+                        help="Nur Payload-Indizes anlegen/aktualisieren (keine Embeddings, kein Upload).")
 
     args = parser.parse_args()
 
@@ -488,7 +519,8 @@ def main():
         create_indexes=bool(args.create_indexes),
         create_collection_if_missing=bool(args.create_collection),
         vector_size=args.vector_size,
-        dedupe_mode=args.dedupe
+        dedupe_mode=args.dedupe,
+        only_indexes=bool(args.only_indexes),
     )
 
 
