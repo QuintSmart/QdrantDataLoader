@@ -224,3 +224,81 @@ The script assigns **Universally Unique Identifiers (UUIDs)** as strings (e.g., 
 The script uses Python's built-in `logging` module to output information about its progress, warnings, and any errors encountered. Log messages include timestamps and severity levels, which helps in monitoring the script's execution and troubleshooting issues.
 
 
+## Erweiterungen (GUI, Indizes, Auto-Collection, .env)
+
+Diese Version bringt folgende Ergänzungen:
+
+- GUI: `QdrantLoaderGUI.py` zum Starten des Loaders mit Parametern und Live-Log.
+- Batch-Embeddings (`embed_documents`) und Upload-Batching zur Beschleunigung großer Uploads.
+- Optionale Payload-Indizes: `date_created` (datetime), `tag` (text), `note_type` (text). Siehe Doku: [Qdrant Indexing](https://qdrant.tech/documentation/concepts/indexing/).
+- Optionale automatische Collection-Erstellung (Vector Size + Cosine). Siehe Doku: [Qdrant Collections](https://qdrant.tech/documentation/concepts/collections/).
+- .env-Unterstützung (via `python-dotenv`) für lokale Secrets ohne git.
+
+### .env Beispiel
+Lege eine `.env` im Projekt an (wird ignoriert):
+```
+OPENAI_API_KEY=dein_openai_key
+QDRANT_CLOUD_URL=https://<dein-qdrant-url>
+QDRANT_API_KEY=dein_qdrant_api_key
+QDRANT_COLLECTION_NAME=LinkedInPosts
+DOCUMENT_TYPE=note
+```
+
+### GUI starten
+```
+python QdrantLoaderGUI.py
+```
+Parameter:
+- Markdown-Ordner, Collection, Note Type, Embeddings-Cache
+- Chunk Size/Overlap, Upload Batch Size, Embedding Batch Size
+- Payload-Indizes erstellen (Checkbox)
+- Collection anlegen falls fehlt (Checkbox) + Vector Size
+
+Im GUI-Abschnitt:
+
+- Dedupe-Modus (Dropdown): `skip` (Standard), `overwrite`, `off`.
+- Cache leeren: Button löscht die aktuell konfigurierte Embeddings-Cache-Datei.
+- Die GUI merkt sich automatisch die letzten Einstellungen (gespeichert unter `~/.qdrant_loader_gui.json`).
+
+### CLI (wichtige Flags)
+```
+python LoadTextDataToQdrantCollection.py /path/to/markdown_folder \
+  --collection "MyCollection" \
+  --doctype "note" \
+  --embedfile "embeddings_cache.pickle" \
+  --chunk-size 1200 \
+  --chunk-overlap 150 \
+  --batch-size 256 \
+  --embedding-batch-size 128 \
+  --create-indexes \
+  --create-collection \
+  --vector-size 1536
+```
+
+Weitere Hinweise:
+- Collections-Hintergrund: [Qdrant Collections](https://qdrant.tech/documentation/concepts/collections/)
+- Indexing-Hintergrund: [Qdrant Indexing](https://qdrant.tech/documentation/concepts/indexing/)
+
+
+## Dedupe & inkrementelles Laden
+
+Um doppelte Uploads zu vermeiden bzw. nur neue Dateien hinzuzufügen, nutzt der Loader:
+- `file_hash` (SHA-256) pro Datei im Payload.
+- Deterministische IDs pro Chunk (`uuid5` aus `file_hash:chunk_index`).
+- Dedupe-Strategie per CLI: `--dedupe skip|overwrite|off` (Default: `skip`).
+  - `skip`: Wenn `file_hash` schon in der Collection existiert, werden die Chunks dieser Datei übersprungen (kein Re-Upload).
+  - `overwrite`: Existierende Punkte mit gleichem `file_hash` werden vor dem Upload gelöscht und durch neue ersetzt.
+  - `off`: Es wird immer hochgeladen, keine Dedupe-Logik.
+
+Beispiel:
+```
+python LoadTextDataToQdrantCollection.py /path/to/markdown \
+  --collection MyCollection \
+  --create-collection --vector-size 1536 \
+  --create-indexes \
+  --dedupe skip
+```
+
+Hinweis: Für schnelle Filterung wird empfohlen, bei `--create-indexes` auch der Index `file_hash (keyword)` zu erstellen (automatisch enthalten).
+
+
